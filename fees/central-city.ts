@@ -3,7 +3,7 @@ import { CHAIN } from "../helpers/chains";
 import ADDRESSES from "../helpers/coreAssets.json";
 import { METRIC } from "../helpers/metrics";
 
-// Central City (https://centralcity.ai): AI agents on Base pay for services in USDC (x402). Qualifying
+// Central City (https://centralcity.ai): AI agents on Base and Arc pay for services in USDC (x402). Qualifying
 // Feed service payments carry a 10% protocol fee, charged by the CentralCityFeeRouter and sent straight
 // to the Central City treasury. Methodology: https://centralcity.ai/docs/protocol-fees.md
 
@@ -22,8 +22,17 @@ const FEE_ROUTER_2 = "0xb1945a2af160e84e34f7c0fb0e4dd94fd4c0af0d";
 // payment is also a standard x402-style USDC transfer. 100 USDC cap. Deployed at block 52804453
 // (2026-10-19). Verified source: https://basescan.org/address/0xe807a76385ec3d76d17ab955091c12329d0a1403#code
 const FEE_ROUTER_3 = "0xe807a76385ec3d76d17ab955091c12329d0a1403";
-const FEE_ROUTERS = [FEE_ROUTER, FEE_ROUTER_2, FEE_ROUTER_3];
-const USDC = ADDRESSES.base.USDC;
+// On Arc only the third router exists, at the same address: same fee, treasury and FeeCharged event, in
+// Arc's USDC. Deployed at block 28866621 (2026-10-31); first fee at block 28942148 (2026-11-01).
+// https://explorer.arc.io/address/0xe807a76385ec3d76d17ab955091c12329d0a1403
+const FEE_ROUTERS: Record<string, string[]> = {
+  [CHAIN.BASE]: [FEE_ROUTER, FEE_ROUTER_2, FEE_ROUTER_3],
+  [CHAIN.ARC]: [FEE_ROUTER_3],
+};
+const USDC: Record<string, string> = {
+  [CHAIN.BASE]: ADDRESSES.base.USDC,
+  [CHAIN.ARC]: ADDRESSES.arc.USDC,
+};
 
 // One event per collected fee, emitted in the call that moves the fee to the treasury: gross = the
 // service price, fee = the protocol fee in USDC units. Fees and revenue are this exact on-chain value.
@@ -44,11 +53,12 @@ const fetch = async (options: FetchOptions) => {
   const dailyRevenue = options.createBalances();
   const dailyVolume = options.createBalances();
 
-  const logs = await options.getLogs({ targets: FEE_ROUTERS, eventAbi: FEE_CHARGED_EVENT });
+  const usdc = USDC[options.chain];
+  const logs = await options.getLogs({ targets: FEE_ROUTERS[options.chain], eventAbi: FEE_CHARGED_EVENT });
   for (const log of logs) {
-    dailyFees.add(USDC, log.fee, METRIC.SERVICE_FEES);
-    dailyRevenue.add(USDC, log.fee, SERVICE_FEES_TO_TREASURY);
-    if (Number(log.kind) === KIND_INCLUDED) dailyVolume.add(USDC, log.gross);
+    dailyFees.add(usdc, log.fee, METRIC.SERVICE_FEES);
+    dailyRevenue.add(usdc, log.fee, SERVICE_FEES_TO_TREASURY);
+    if (Number(log.kind) === KIND_INCLUDED) dailyVolume.add(usdc, log.gross);
   }
 
   return {
@@ -60,33 +70,34 @@ const fetch = async (options: FetchOptions) => {
 };
 
 const methodology = {
-  Volume: "Service payments in USDC on Base settled through Central City's immutable fee routers with the fee included: the full price the router moves for each payment (90% to the seller, 10% fee to the treasury). Fee-on-top payments, where the router moves only the fee, are not counted. Includes payments made by all agents created on Central City, counted under the same rules.",
-  Fees: "The 10% protocol fee on qualifying Feed service payments, which AI agents make in USDC on Base for services on Central City's Feed (other payments carry no fee), charged by Central City's immutable fee routers and sent straight to the Central City treasury. Includes payments made by all agents created on Central City, counted under the same rules.",
-  Revenue: "The full 10% protocol fee on qualifying Feed service payments, which AI agents make in USDC on Base for services on Central City's Feed, kept by Central City: the immutable fee routers send it straight to the Central City treasury. Includes payments made by all agents created on Central City, counted under the same rules.",
-  ProtocolRevenue: "The full 10% protocol fee on qualifying Feed service payments, which AI agents make in USDC on Base for services on Central City's Feed, sent by Central City's immutable fee routers straight to the Central City treasury. Includes payments made by all agents created on Central City, counted under the same rules.",
+  Volume: "Service payments in USDC on Base and Arc settled through Central City's immutable fee routers with the fee included: the full price the router moves for each payment (90% to the seller, 10% fee to the treasury). Fee-on-top payments, where the router moves only the fee, are not counted. Includes payments made by all agents created on Central City, counted under the same rules.",
+  Fees: "The 10% protocol fee on qualifying Feed service payments, which AI agents make in USDC on Base and Arc for services on Central City's Feed (other payments carry no fee), charged by Central City's immutable fee routers and sent straight to the Central City treasury. Includes payments made by all agents created on Central City, counted under the same rules.",
+  Revenue: "The full 10% protocol fee on qualifying Feed service payments, which AI agents make in USDC on Base and Arc for services on Central City's Feed, kept by Central City: the immutable fee routers send it straight to the Central City treasury. Includes payments made by all agents created on Central City, counted under the same rules.",
+  ProtocolRevenue: "The full 10% protocol fee on qualifying Feed service payments, which AI agents make in USDC on Base and Arc for services on Central City's Feed, sent by Central City's immutable fee routers straight to the Central City treasury. Includes payments made by all agents created on Central City, counted under the same rules.",
 };
 
 const breakdownMethodology = {
   Fees: {
     [METRIC.SERVICE_FEES]:
-      "The 10% protocol fee on qualifying Feed service payments in USDC on Base, charged by Central City's immutable fee routers and sent straight to the Central City treasury. Includes payments made by all agents created on Central City, counted under the same rules.",
+      "The 10% protocol fee on qualifying Feed service payments in USDC on Base and Arc, charged by Central City's immutable fee routers and sent straight to the Central City treasury. Includes payments made by all agents created on Central City, counted under the same rules.",
   },
   Revenue: {
     [SERVICE_FEES_TO_TREASURY]:
-      "The full 10% protocol fee on qualifying Feed service payments in USDC on Base, sent by Central City's immutable fee routers straight to the Central City treasury. Includes payments made by all agents created on Central City, counted under the same rules.",
+      "The full 10% protocol fee on qualifying Feed service payments in USDC on Base and Arc, sent by Central City's immutable fee routers straight to the Central City treasury. Includes payments made by all agents created on Central City, counted under the same rules.",
   },
   ProtocolRevenue: {
     [SERVICE_FEES_TO_TREASURY]:
-      "The full 10% protocol fee on qualifying Feed service payments in USDC on Base, sent by Central City's immutable fee routers straight to the Central City treasury. Includes payments made by all agents created on Central City, counted under the same rules.",
+      "The full 10% protocol fee on qualifying Feed service payments in USDC on Base and Arc, sent by Central City's immutable fee routers straight to the Central City treasury. Includes payments made by all agents created on Central City, counted under the same rules.",
   },
 };
 
 const adapter: SimpleAdapter = {
   version: 2,
   pullHourly: true,
-  fetch,
-  chains: [CHAIN.BASE],
-  start: "2026-10-14",
+  adapter: {
+    [CHAIN.BASE]: { fetch, start: "2026-10-14" },
+    [CHAIN.ARC]: { fetch, start: "2026-10-31" },
+  },
   methodology,
   breakdownMethodology,
 };

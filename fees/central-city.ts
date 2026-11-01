@@ -25,13 +25,17 @@ const FEE_ROUTER_3 = "0xe807a76385ec3d76d17ab955091c12329d0a1403";
 // On Arc only the third router exists, at the same address: same fee, treasury and FeeCharged event, in
 // Arc's USDC. Deployed at block 28866621 (2026-10-31); first fee at block 28942148 (2026-11-01).
 // https://explorer.arc.io/address/0xe807a76385ec3d76d17ab955091c12329d0a1403
-const FEE_ROUTERS: Record<string, string[]> = {
-  [CHAIN.BASE]: [FEE_ROUTER, FEE_ROUTER_2, FEE_ROUTER_3],
-  [CHAIN.ARC]: [FEE_ROUTER_3],
-};
-const USDC: Record<string, string> = {
-  [CHAIN.BASE]: ADDRESSES.base.USDC,
-  [CHAIN.ARC]: ADDRESSES.arc.USDC,
+const chainConfig: Record<string, { routers: string[]; usdc: string; start: string }> = {
+  [CHAIN.BASE]: {
+    routers: [FEE_ROUTER, FEE_ROUTER_2, FEE_ROUTER_3],
+    usdc: ADDRESSES.base.USDC,
+    start: "2026-10-14",
+  },
+  [CHAIN.ARC]: {
+    routers: [FEE_ROUTER_3],
+    usdc: ADDRESSES.arc.USDC,
+    start: "2026-10-31",
+  },
 };
 
 // One event per collected fee, emitted in the call that moves the fee to the treasury: gross = the
@@ -53,8 +57,8 @@ const fetch = async (options: FetchOptions) => {
   const dailyRevenue = options.createBalances();
   const dailyVolume = options.createBalances();
 
-  const usdc = USDC[options.chain];
-  const logs = await options.getLogs({ targets: FEE_ROUTERS[options.chain], eventAbi: FEE_CHARGED_EVENT });
+  const { routers, usdc } = chainConfig[options.chain];
+  const logs = await options.getLogs({ targets: routers, eventAbi: FEE_CHARGED_EVENT });
   for (const log of logs) {
     dailyFees.add(usdc, log.fee, METRIC.SERVICE_FEES);
     dailyRevenue.add(usdc, log.fee, SERVICE_FEES_TO_TREASURY);
@@ -94,10 +98,8 @@ const breakdownMethodology = {
 const adapter: SimpleAdapter = {
   version: 2,
   pullHourly: true,
-  adapter: {
-    [CHAIN.BASE]: { fetch, start: "2026-10-14" },
-    [CHAIN.ARC]: { fetch, start: "2026-10-31" },
-  },
+  fetch,
+  adapter: chainConfig,
   methodology,
   breakdownMethodology,
 };
